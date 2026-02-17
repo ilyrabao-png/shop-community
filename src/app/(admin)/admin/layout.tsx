@@ -18,6 +18,14 @@ const navItems = [
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
+  if (pathname === "/admin/login") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-amber-50/90 p-4">
+        {children}
+      </div>
+    );
+  }
+
   return (
     <AdminGuard>
       <div className="flex min-h-screen">

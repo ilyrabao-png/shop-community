@@ -1,24 +1,26 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/store/useAuth";
 import { isAdmin } from "@/services/api";
 
 export function AdminGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const { user } = useAuth();
 
   useEffect(() => {
     if (!user) {
-      router.replace("/auth/login?next=/admin");
+      const next = pathname ? encodeURIComponent(pathname) : "/admin";
+      router.replace(`/admin/login?next=${next}`);
       return;
     }
     if (!isAdmin(user.id)) {
-      router.replace("/");
+      // Stay on current page; render access denied below
     }
-  }, [user, router]);
+  }, [user, router, pathname]);
 
   if (!user) {
     return (

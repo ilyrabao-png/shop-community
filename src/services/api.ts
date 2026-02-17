@@ -50,8 +50,12 @@ const asUserId = (id: string): UserId => id as UserId;
 
 const KEY = 'bmarket_';
 
-// Storage helpers for robust per-user persistence (avatar, profile)
+// Storage helpers for robust per-user persistence (v2 keys)
 import {
+  getUsers as storageGetUsers,
+  saveUsers as storageSaveUsers,
+  upsertUser as storageUpsertUser,
+  migrateStorageIfNeeded,
   loadUser as storageLoadUser,
   saveUser as storageSaveUser,
   loadCurrentUserId,
@@ -90,8 +94,99 @@ function save<K extends string>(k: K, val: unknown): void {
   }
 }
 
-// In-memory arrays (load from localStorage on client)
-let users: StoredUser[] = load('users', []);
+// In-memory users (v2 storage - never overwrite entire list when seeding)
+migrateStorageIfNeeded();
+let users: StoredUser[] = (typeof window !== 'undefined' ? storageGetUsers() : []) as StoredUser[];
+
+let products: Product[] = load('products', []);
+let posts: Post[] = load('posts', []);
+let comments: Comment[] = load('comments', []);
+let reviews: Review[] = load('reviews', []);
+type LikeEntry = { postId: string; userId: string };
+const likeEntries: LikeEntry[] = load('postLikes', []);
+const postLikes = new Map<string, Set<string>>();
+for (const e of likeEntries) {
+  let set = postLikes.get(e.postId);
+  if (!set) {
+    set = new Set<string>();
+    postLikes.set(e.postId, set);
+  }
+  set.add(e.userId);
+}
+type FollowEntry = { followerId: string; followingId: string };
+const followEntries: FollowEntry[] = load('follows', []);
+const followMap = new Map<string, Set<string>>();
+for (const e of followEntries) {
+  let set = followMap.get(e.followerId);
+  if (!set) {
+    set = new Set<string>();
+    followMap.set(e.followerId, set);
+  }
+  set.add(e.followingId);
+}
+let reports: Report[] = load('reports', []);
+
+export type Counters = {
+  orderCounter: number;
+  commentCounter: number;
+  productCounter: number;
+  variantCounter: number;
+  reviewCounter: number;
+  postCounter: number;
+  userCounter: number;
+};
+
+function loadCounters(): Counters {
+  return {
+    orderCounter: load('orderCounter', 1),
+    commentCounter: Math.max(comments.length + 1, load('commentCounter', 1)),
+    productCounter: Math.max(products.length + 1, load('productCounter', 1)),
+    variantCounter: load('variantCounter', 1000),
+    reviewCounter: Math.max(reviews.length + 1, load('reviewCounter', 1)),
+    postCounter: Math.max(posts.length + 1, load('postCounter', 100)),
+    userCounter: Math.max(users.length + 1, load('userCounter', 1)),
+  };
+}
+
+function saveCounters(c: Counters): void {
+  save('orderCounter', c.orderCounter);
+  save('commentCounter', c.commentCounter);
+  save('productCounter', c.productCounter);
+  save('variantCounter', c.variantCounter);
+  save('reviewCounter', c.reviewCounter);
+  save('postCounter', c.postCounter);
+  save('userCounter', c.userCounter);
+}
+
+let orderCounter: number;
+let commentCounter: number;
+let productCounter: number;
+let variantCounter: number;
+let reviewCounter: number;
+let postCounter: number;
+let userCounter: number;
+(function initCounters() {
+  const c = loadCounters();
+  orderCounter = c.orderCounter;
+  commentCounter = c.commentCounter;
+  productCounter = c.productCounter;
+  variantCounter = c.variantCounter;
+  reviewCounter = c.reviewCounter;
+  postCounter = c.postCounter;
+  userCounter = c.userCounter;
+})();
+
+function persistCounters(): void {
+  saveCounters({
+    orderCounter,
+    commentCounter,
+    productCounter,
+    reviewCounter,
+    postCounter,
+    userCounter,
+    variantCounter,
+  });
+}
 
 // Hydrate per-user profile from storage (avatar, bio, etc) - single source of truth
 function hydrateUserProfiles(): void {
@@ -108,8 +203,9 @@ function hydrateUserProfiles(): void {
   }
 }
 hydrateUserProfiles();
+seedAdminAndDemoIfNeeded();
 
-// Persist full user profile to storage (single source of truth for avatar, etc.)
+/** Seed admin/demo users only if missing. NEVER overwrite existing users. */
 function persistUserToStorage(u: StoredUser): void {
   if (typeof window === 'undefined') return;
   const profile = {
@@ -133,61 +229,34 @@ for (const u of users) {
   }
 }
 
-// Seed demo users when empty (admin + seller + user)
-function seedUsersIfEmpty(): void {
-  if (users.length > 0) return;
+/** Seed admin/demo users only if missing. NEVER overwrite existing users. */
+function seedAdminAndDemoIfNeeded(): void {
+  if (typeof window === 'undefined') return;
   const now = new Date().toISOString();
-  const admin: StoredUser = {
-    id: asUserId('u-admin'),
-    email: 'admin@bmarket.local',
-    displayName: 'Admin',
-    avatarUrl: undefined,
-    role: 'admin',
-    password: 'admin123',
-    createdAt: now,
-    updatedAt: now,
-  };
-  const seller: StoredUser = {
-    id: asUserId('u-seller'),
-    email: 'seller@bmarket.local',
-    displayName: 'Người bán',
-    avatarUrl: undefined,
-    role: 'seller',
-    password: 'seller123',
-    createdAt: now,
-    updatedAt: now,
-  };
-  const demo: StoredUser = {
-    id: asUserId('u-demo'),
-    email: 'demo@bmarket.local',
-    displayName: 'Người dùng demo',
-    avatarUrl: undefined,
-    role: 'user',
-    password: 'demo123',
-    createdAt: now,
-    updatedAt: now,
-  };
-  users.push(admin, seller, demo);
-  userCounter = 4;
-  save('users', users);
-  persistCounters();
-}
-let products: Product[] = load('products', []);
-let posts: Post[] = load('posts', []);
-let comments: Comment[] = load('comments', []);
-let reviews: Review[] = load('reviews', []);
-// postId -> Set<userId> (persisted for likeCount consistency)
-type LikeEntry = { postId: string; userId: string };
-const likeEntries: LikeEntry[] = load('postLikes', []);
-const postLikes = new Map<string, Set<string>>();
-for (const e of likeEntries) {
-  let set = postLikes.get(e.postId);
-  if (!set) {
-    set = new Set<string>();
-    postLikes.set(e.postId, set);
+  const seeds: Array<{ id: UserId; email: string; displayName: string; role: UserRole; password: string }> = [
+    { id: asUserId('u-admin'), email: 'admin@bmarket.local', displayName: 'Admin', role: 'admin', password: 'admin123' },
+    { id: asUserId('u-seller'), email: 'seller@bmarket.local', displayName: 'Người bán', role: 'seller', password: 'seller123' },
+    { id: asUserId('u-demo'), email: 'demo@bmarket.local', displayName: 'Người dùng demo', role: 'user', password: 'demo123' },
+  ];
+  for (const s of seeds) {
+    const exists = users.some((u) => u.email.toLowerCase() === s.email.toLowerCase());
+    if (!exists) {
+      const full: StoredUser = {
+        ...s,
+        avatarUrl: undefined,
+        createdAt: now,
+        updatedAt: now,
+      };
+      storageUpsertUser(full);
+    }
   }
-  set.add(e.userId);
+  users = storageGetUsers() as StoredUser[];
+  const c = loadCounters();
+  c.userCounter = Math.max(c.userCounter ?? 1, users.length + 1);
+  saveCounters(c);
+  userCounter = c.userCounter;
 }
+
 function savePostLikes(): void {
   const entries: LikeEntry[] = [];
   postLikes.forEach((set, postId) => {
@@ -196,18 +265,6 @@ function savePostLikes(): void {
   save('postLikes', entries);
 }
 
-// followerId -> Set<followingId> (who they follow)
-type FollowEntry = { followerId: string; followingId: string };
-const followEntries: FollowEntry[] = load('follows', []);
-const followMap = new Map<string, Set<string>>();
-for (const e of followEntries) {
-  let set = followMap.get(e.followerId);
-  if (!set) {
-    set = new Set<string>();
-    followMap.set(e.followerId, set);
-  }
-  set.add(e.followingId);
-}
 function saveFollows(): void {
   const entries: FollowEntry[] = [];
   followMap.forEach((set, followerId) => {
@@ -215,9 +272,6 @@ function saveFollows(): void {
   });
   save('follows', entries);
 }
-
-// Reports (admin moderation)
-let reports: Report[] = load('reports', []);
 
 // Admin settings
 const defaultAdminSettings: AdminSettings = {
@@ -254,23 +308,6 @@ export function setAdminOverrideUserId(userId: UserId | null): void {
 
 let notifications: Notification[] = [];
 let notificationCounter = 0;
-let orderCounter = load('orderCounter', 1);
-let commentCounter = Math.max(comments.length + 1, load('commentCounter', 1));
-let productCounter = Math.max(products.length + 1, load('productCounter', 1));
-let variantCounter = load('variantCounter', 1000);
-let reviewCounter = Math.max(reviews.length + 1, load('reviewCounter', 1));
-let postCounter = Math.max(posts.length + 1, load('postCounter', 100));
-let userCounter = Math.max(users.length + 1, load('userCounter', 1));
-
-function persistCounters(): void {
-  save('orderCounter', orderCounter);
-  save('commentCounter', commentCounter);
-  save('productCounter', productCounter);
-  save('variantCounter', variantCounter);
-  save('reviewCounter', reviewCounter);
-  save('postCounter', postCounter);
-  save('userCounter', userCounter);
-}
 
 // =============================================================================
 // Auth (called from client; uses in-memory users + localStorage)
@@ -290,7 +327,6 @@ export function registerUser(
   }
   const now = new Date().toISOString();
   const id = asUserId(`u-${userCounter++}`);
-  seedUsersIfEmpty();
   const newUser: StoredUser = {
     id,
     email: normalized,
@@ -301,8 +337,8 @@ export function registerUser(
     createdAt: now,
     updatedAt: now,
   };
-  users.push(newUser);
-  save('users', users);
+  storageUpsertUser(newUser);
+  users = storageGetUsers() as StoredUser[];
   persistCounters();
   return {
     ok: true,
@@ -314,10 +350,15 @@ export function loginUser(
   email: string,
   password: string
 ): { ok: true; user: AuthUser } | { ok: false; error: string } {
-  seedUsersIfEmpty();
+  seedAdminAndDemoIfNeeded();
   const normalized = email.trim().toLowerCase();
   const u = users.find((x) => x.email.toLowerCase() === normalized);
-  if (!u) return { ok: false, error: 'Email chưa đăng ký.' };
+  if (!u)
+    return {
+      ok: false,
+      error:
+        'Tài khoản chưa tồn tại trên thiết bị/đường dẫn hiện tại. Vui lòng đăng ký lại hoặc import dữ liệu.',
+    };
   if (u.password !== password) return { ok: false, error: 'Mật khẩu không đúng.' };
   const status = u.status ?? 'active';
   if (status === 'deleted') return { ok: false, error: 'Tài khoản đã bị xóa.' };
@@ -375,7 +416,7 @@ export function updateUserProfile(
   if (updates.phone !== undefined) u.phone = updates.phone.trim() || undefined;
   if (updates.socialLinks !== undefined) u.socialLinks = updates.socialLinks;
   u.updatedAt = new Date().toISOString();
-  save('users', users);
+  storageSaveUsers(users);
   persistUserToStorage(u);
   return { id: u.id, email: u.email, displayName: u.displayName, avatarUrl: u.avatarUrl, role: u.role };
 }
@@ -385,7 +426,7 @@ export function updateUserAvatar(userId: UserId, dataUrl: string | null): AuthUs
   if (!u) return null;
   u.avatarUrl = dataUrl || undefined;
   u.updatedAt = new Date().toISOString();
-  save('users', users);
+  storageSaveUsers(users);
   persistUserToStorage(u);
   return { id: u.id, email: u.email, displayName: u.displayName, avatarUrl: u.avatarUrl, role: u.role };
 }
@@ -1204,7 +1245,7 @@ export function adminUpdateUser(
   if (patch.status !== undefined) u.status = patch.status;
   if (patch.avatarUrl !== undefined) u.avatarUrl = patch.avatarUrl || undefined;
   u.updatedAt = new Date().toISOString();
-  save('users', users);
+  storageSaveUsers(users);
   return u;
 }
 
@@ -1447,7 +1488,7 @@ export function adminUpdateReport(
     } else if (t === 'user') {
       const u = users.find((x) => x.id === tid);
       if (u) u.status = 'suspended';
-      save('users', users);
+      storageSaveUsers(users);
     }
   }
   save('reports', reports);
@@ -1514,7 +1555,7 @@ export function getRecentActivity(limit: number = 10): ActivityItem[] {
 
 function seedReportsIfEmpty(): void {
   if (reports.length > 0) return;
-  if (users.length === 0) seedUsersIfEmpty();
+  if (users.length === 0) seedAdminAndDemoIfNeeded();
   const now = new Date().toISOString();
   if (products.length > 0) {
     reports.push({

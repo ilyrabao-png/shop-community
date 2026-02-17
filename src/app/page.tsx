@@ -1,7 +1,32 @@
+"use client";
+
+import { useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Logo } from "@/components/brand/Logo";
+import { useAuth } from "@/store/useAuth";
 
 export default function Home() {
+  const router = useRouter();
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (user === undefined) return;
+    if (!user) {
+      router.replace("/auth/login?next=/");
+      return;
+    }
+  }, [user, router]);
+
+  if (user === undefined) {
+    return (
+      <main className="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16">
+        <p className="text-center text-green-900/70">Đang tải…</p>
+      </main>
+    );
+  }
+  if (!user) return null;
+
   return (
     <main className="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16">
       <div className="mx-auto max-w-2xl text-center">

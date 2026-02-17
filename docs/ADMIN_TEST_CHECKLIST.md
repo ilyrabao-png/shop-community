@@ -1,11 +1,22 @@
 # Admin Dashboard Test Checklist
 
-## Access
+## Access & auth separation
 
-- Login as **admin@bmarket.local** / **admin123**
-- Navbar shows "Admin" link when logged in as admin
-- `/admin` redirects to login if not authenticated
-- Non-admin users get "Không có quyền truy cập" when visiting `/admin`
+- **User login** (`/auth/login`): heading "Đăng nhập", subtitle "Đăng nhập để mua bán và quản lý tài khoản". No mention of admin.
+- **Admin login** (`/admin/login`): heading "ADMIN – Đăng nhập", visible "Admin" badge. For admins only; non-admin users see "Không có quyền truy cập" after submitting.
+- Visiting **/admin** (or any /admin/*) while **logged out** → redirects to **/admin/login** (not /auth/login).
+- Visiting **/sell** or **/feed/new** while **logged out** → redirects to **/auth/login**.
+- Navbar "Đăng nhập" always goes to `/auth/login`. Admin link (to `/admin`) only visible when current user is admin. No /admin/login link in navbar.
+- Login as **admin@bmarket.local** / **admin123** on `/admin/login` to access dashboard.
+- Non-admin users visiting `/admin` get "Không có quyền truy cập" with link to home.
+
+## User persistence & storage
+
+- **localStorage theo domain**: localhost ≠ server IP. Xem [docs/AUTH_STORAGE.md](AUTH_STORAGE.md).
+- Đăng ký user mới → đăng nhập lại sau refresh → vẫn còn.
+- Admin seeding không xóa users có sẵn.
+- User không tìm thấy: "Tài khoản chưa tồn tại trên thiết bị/đường dẫn hiện tại. Vui lòng đăng ký lại hoặc import dữ liệu."
+- `/dev/storage` (dev only): Export/Import users để phục hồi khi đổi domain.
 
 ## Dashboard (`/admin`)
 
