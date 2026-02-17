@@ -1,0 +1,30 @@
+﻿# dependencies
+node_modules/
+
+# next
+.next/
+out/
+dist/
+.turbo/
+
+# env files
+.env
+.env.*
+!.env.example
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# misc
+*.tsbuildinfo
